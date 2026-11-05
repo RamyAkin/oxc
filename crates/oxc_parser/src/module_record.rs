@@ -787,6 +787,18 @@ mod module_record_tests {
     }
 
     #[test]
+    fn parenthesized_initializers_record_imports_once() {
+        let allocator = Allocator::default();
+        let source = "(a = import('x'), b = import.meta);";
+        let ret = Parser::new(&allocator, source, SourceType::mjs()).parse();
+        assert!(ret.diagnostics.is_empty());
+        assert_eq!(ret.module_record.dynamic_imports.len(), 1);
+        assert_eq!(ret.module_record.import_metas.len(), 1);
+        assert_eq!(ret.module_record.dynamic_imports[0].span.source_text(source), "import('x')");
+        assert_eq!(ret.module_record.import_metas[0].source_text(source), "import.meta");
+    }
+
+    #[test]
     fn export_default_interface() {
         let allocator = Allocator::default();
         let module_record = build(&allocator, "export default interface Foo {}");
