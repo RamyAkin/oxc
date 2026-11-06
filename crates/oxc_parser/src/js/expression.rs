@@ -947,12 +947,20 @@ impl<'a, C: Config> ParserImpl<'a, C> {
                     lhs = self.parse_static_member_expression(lhs_start, lhs, false);
                 }
                 Kind::QuestionDot if allow_optional_chain => {
-                    // Fast check to avoid checkpoint/rewind in common cases
-                    let next_kind = self.lexer.peek_token().kind();
-                    if next_kind == Kind::LBrack
-                        || next_kind.is_identifier_or_keyword()
-                        || next_kind.is_template_start_of_tagged_template()
-                    {
+                    // Recognize common continuations without lexing and rewinding the next token.
+                    let next_is_member =
+                        match self.source_text.as_bytes().get(self.cur_token().end() as usize) {
+                            Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$' | b'[') => true,
+                            // Leave optional calls for the call-expression parser.
+                            Some(b'(') => return lhs,
+                            _ => {
+                                let next_kind = self.lexer.peek_token().kind();
+                                next_kind == Kind::LBrack
+                                    || next_kind.is_identifier_or_keyword()
+                                    || next_kind.is_template_start_of_tagged_template()
+                            }
+                        };
+                    if next_is_member {
                         // This is likely a valid optional chain, proceed with normal parsing
                         self.bump_any(); // consume ?.
                         *in_optional_chain = true;
