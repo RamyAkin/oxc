@@ -3,7 +3,6 @@ use oxc_ast_visit::utf8_to_utf16::Utf8ToUtf16;
 use oxc_benchmark::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use oxc_estree_tokens::{ESTreeTokenOptionsJS, to_estree_tokens_json};
 use oxc_parser::{ParseOptions, Parser, ParserReturn, config::RuntimeParserConfig};
-use oxc_span::SourceType;
 use oxc_tasks_common::TestFiles;
 
 fn bench_parser(criterion: &mut Criterion) {
@@ -33,44 +32,6 @@ fn bench_parser(criterion: &mut Criterion) {
     }
 
     group.finish();
-}
-
-fn bench_regex(criterion: &mut Criterion) {
-    let cases = [
-        ("single", "/a/g;".to_string()),
-        ("short", format!("/{}/g;", "a".repeat(8))),
-        ("medium", format!("/{}/g;", "a".repeat(32))),
-        ("long", format!("/{}/g;", "a".repeat(128))),
-        ("very_long", format!("/{}/g;", "a".repeat(1024))),
-        ("short_class", "/[a]/;".to_string()),
-        ("long_class", format!("/[{}]/;", "a".repeat(128))),
-        ("escapes", format!("/{}/;", r"a\d\s\/".repeat(80))),
-        ("classes", format!("/{}/;", "[abc/]".repeat(80))),
-        ("typical", r"/^[a-zA-Z_$][\w$]*$/g;".to_string()),
-        ("unicode", format!("/{}/u;", "漢€𝄞".repeat(80))),
-    ];
-    for parse_regular_expression in [false, true] {
-        let name = if parse_regular_expression { "parser_regex_ast" } else { "parser_regex" };
-        let mut group = criterion.benchmark_group(name);
-        for (name, statement) in &cases {
-            let source = statement.repeat(1000);
-            group.bench_function(*name, |b| {
-                let mut allocator = Allocator::default();
-                b.iter(|| {
-                    black_box(
-                        Parser::new(&allocator, black_box(&source), SourceType::mjs())
-                            .with_options(ParseOptions {
-                                parse_regular_expression,
-                                ..ParseOptions::default()
-                            })
-                            .parse(),
-                    );
-                    allocator.reset();
-                });
-            });
-        }
-        group.finish();
-    }
 }
 
 fn bench_estree(criterion: &mut Criterion) {
@@ -161,5 +122,5 @@ fn bench_estree_tokens(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(parser, bench_parser, bench_regex, bench_estree, bench_estree_tokens);
+criterion_group!(parser, bench_parser, bench_estree, bench_estree_tokens);
 criterion_main!(parser);
