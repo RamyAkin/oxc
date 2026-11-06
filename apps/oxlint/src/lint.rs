@@ -1991,100 +1991,117 @@ mod test {
 
     #[test]
     #[cfg(not(target_endian = "big"))]
-    fn test_tsgolint_type_check_inferred_program() {
-        snapshot_tsgolint_type_check_program(&["inferred/index.ts"]);
-    }
-
-    #[test]
-    #[cfg(not(target_endian = "big"))]
-    fn test_tsgolint_type_check_mixed_programs() {
-        snapshot_tsgolint_type_check_program(&["project/index.ts", "inferred/index.ts"]);
-    }
-
-    #[test]
-    #[cfg(not(target_endian = "big"))]
     fn test_tsgolint_type_check_programs() {
-        let cases: &[&[&str]] = &[
-            &["inferred/global.ts", "inferred/uses-global.ts"],
-            &["inferred/clean.ts"],
-            &["project/clean.ts"],
-            &["project/index.ts", "project/other.ts"],
-            &["project/index.ts"],
-            &["project/excluded/index.ts"],
-            &["projects/strict/index.ts", "projects/loose/index.ts"],
-            &["projects/loose/index.ts", "projects/loose/nested/index.ts"],
-            &["references/app/index.ts"],
-            &["references"],
-            &[
-                "references/app/index.ts",
-                "references/tool/index.ts",
-                "references/lib/index.ts",
-                "references/core/index.ts",
-            ],
-            &["overlapping/index.ts", "overlapping/child/index.ts"],
-            &["circular/a/index.ts"],
+        let cases: &[(&str, &[&[&str]])] = &[
+            (
+                "inferred",
+                &[
+                    &["--type-check-only", "inferred/index.ts"],
+                    &["--type-check-only", "inferred/global.ts", "inferred/uses-global.ts"],
+                    &["--type-check-only", "inferred/clean.ts"],
+                    &["--type-check-only", "project/index.ts", "inferred/index.ts"],
+                ],
+            ),
+            (
+                "project",
+                &[
+                    &["--type-check-only", "project/index.ts", "project/other.ts"],
+                    &["--type-check-only", "project/index.ts"],
+                    &["--type-check-only", "project/clean.ts"],
+                    &["--type-check-only", "project/excluded/index.ts"],
+                ],
+            ),
+            (
+                "multiple_projects",
+                &[
+                    &["--type-check-only", "projects/strict/index.ts", "project/index.ts"],
+                    &["--type-check-only", "project/index.ts", "project/nested/index.ts"],
+                ],
+            ),
+            (
+                "references",
+                &[
+                    &["--type-check-only", "references/app/index.ts"],
+                    &["--type-check-only", "references"],
+                    &[
+                        "--type-check-only",
+                        "references/app/index.ts",
+                        "references/tool/index.ts",
+                        "references/lib/index.ts",
+                        "references/core/index.ts",
+                    ],
+                    &["--type-check-only", "overlapping/index.ts", "overlapping/child/index.ts"],
+                    &["--type-check-only", "circular/a/index.ts"],
+                ],
+            ),
         ];
 
-        for paths in cases {
-            snapshot_tsgolint_type_check_program(paths);
+        for (name, args) in cases {
+            Tester::new()
+                .with_cwd("fixtures/cli/tsgolint_type_check_programs".into())
+                .test_and_snapshot_named(&format!("tsgolint_type_check_{name}"), args);
         }
     }
 
+    #[test]
     #[cfg(not(target_endian = "big"))]
-    fn snapshot_tsgolint_type_check_program(paths: &[&str]) {
+    fn test_tsgolint_type_check_rule_modes() {
         let modes: &[&[&str]] = &[
             &["--type-aware", "--type-check"],
             &["--type-aware", "--type-check", "-A", "all"],
-            &["--type-check-only"],
+            &["--type-aware", "--type-check", "-A", "all", "-D", "no-debugger"],
         ];
+        let args: Vec<Vec<&str>> =
+            ["inferred/index.ts", "project/index.ts", "references/app/index.ts"]
+                .iter()
+                .flat_map(|path| modes.iter().map(move |mode| [*mode, &[*path]].concat()))
+                .collect();
+        let args: Vec<&[&str]> = args.iter().map(Vec::as_slice).collect();
 
-        for mode in modes {
-            let args = [*mode, paths].concat();
-            Tester::new()
-                .with_cwd("fixtures/cli/tsgolint_type_check_programs".into())
-                .test_and_snapshot(&args);
-        }
-    }
-
-    #[test]
-    #[cfg(not(target_endian = "big"))]
-    fn test_tsgolint_type_check_with_only_regular_rules() {
-        for path in ["inferred/index.ts", "project/index.ts", "references/app/index.ts"] {
-            Tester::new()
-                .with_cwd("fixtures/cli/tsgolint_type_check_programs".into())
-                .test_and_snapshot(&[
-                    "--type-aware",
-                    "--type-check",
-                    "-A",
-                    "all",
-                    "-D",
-                    "no-debugger",
-                    path,
-                ]);
-        }
+        Tester::new()
+            .with_cwd("fixtures/cli/tsgolint_type_check_programs".into())
+            .test_and_snapshot_named("tsgolint_type_check_rule_modes", &args);
     }
 
     #[test]
     #[cfg(not(target_endian = "big"))]
     fn test_tsgolint_type_check_with_mixed_rule_groups() {
-        for mode in [&["--type-aware", "--type-check"][..], &["--type-check-only"]] {
-            let args = [mode, &["-c", "mixed-rules.json", "project/index.ts", "project/other.ts"]]
-                .concat();
-            Tester::new()
-                .with_cwd("fixtures/cli/tsgolint_type_check_programs".into())
-                .test_and_snapshot(&args);
-        }
+        Tester::new()
+            .with_cwd("fixtures/cli/tsgolint_type_check_programs".into())
+            .test_and_snapshot_named(
+                "tsgolint_type_check_mixed_rule_groups",
+                &[
+                    &[
+                        "--type-aware",
+                        "--type-check",
+                        "-c",
+                        "mixed-rules.json",
+                        "project/index.ts",
+                        "project/other.ts",
+                    ],
+                    &[
+                        "--type-check-only",
+                        "-c",
+                        "mixed-rules.json",
+                        "project/index.ts",
+                        "project/other.ts",
+                    ],
+                ],
+            );
     }
 
     #[test]
     #[cfg(not(target_endian = "big"))]
     fn test_tsgolint_type_check_tsconfig_is_for_import_resolution() {
-        Tester::new().test_and_snapshot(&[
-            "--type-check-only",
-            "--tsconfig",
-            "fixtures/cli/tsgolint_type_check_programs/custom-tsconfig.json",
-            "fixtures/cli/tsgolint_type_check_programs/projects/strict/index.ts",
-        ]);
+        Tester::new().test_and_snapshot_named(
+            "tsgolint_type_check_tsconfig",
+            &[&[
+                "--type-check-only",
+                "--tsconfig",
+                "fixtures/cli/tsgolint_type_check_programs/project/tsconfig.json",
+                "fixtures/cli/tsgolint_type_check_programs/projects/strict/index.ts",
+            ]],
+        );
     }
 
     #[test]
@@ -2104,11 +2121,15 @@ mod test {
     #[test]
     #[cfg(not(target_endian = "big"))]
     fn test_tsgolint_type_check_only_rejects_fix_flags() {
-        for flag in ["--fix", "--fix-suggestions", "--fix-dangerously"] {
-            Tester::new()
-                .with_cwd("fixtures/cli/tsgolint_type_error".into())
-                .test_and_snapshot(&["--type-check-only", flag]);
-        }
+        let tester = Tester::new().with_cwd("fixtures/cli/tsgolint_type_error".into());
+        tester.test_and_snapshot(&["--type-check-only", "--fix"]);
+        tester.test_and_snapshot_named(
+            "tsgolint_type_check_only_fix_flags",
+            &[
+                &["--type-check-only", "--fix-suggestions"],
+                &["--type-check-only", "--fix-dangerously"],
+            ],
+        );
     }
 
     #[test]
@@ -2454,11 +2475,15 @@ mod suppression {
 
     #[test]
     fn test_type_check_only_rejects_suppression_update_flags() {
-        for flag in ["--suppress-all", "--prune-suppressions"] {
-            Tester::new()
-                .with_cwd("fixtures/suppression/type_check_only_with_regular_rule".into())
-                .test_and_snapshot(&["--type-check-only", flag, "index.ts"]);
-        }
+        Tester::new()
+            .with_cwd("fixtures/suppression/type_check_only_with_regular_rule".into())
+            .test_and_snapshot_named(
+                "tsgolint_type_check_only_suppression_flags",
+                &[
+                    &["--type-check-only", "--suppress-all", "index.ts"],
+                    &["--type-check-only", "--prune-suppressions", "index.ts"],
+                ],
+            );
     }
 
     #[test]

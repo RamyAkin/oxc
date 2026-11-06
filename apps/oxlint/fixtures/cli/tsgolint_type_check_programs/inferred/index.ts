@@ -1,4 +1,4 @@
-import type { Value } from "./types";
+import type { Value } from "../project/dependency";
 
 export const inferred: Value = { count: "inferred" };
 Promise.resolve(1);

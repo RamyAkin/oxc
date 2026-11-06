@@ -10,3 +10,13 @@ Remove `--fix`, `--fix-suggestions`, and `--fix-dangerously`.
 ----------
 CLI result: InvalidOptionTypeCheckOnlyWithFix
 ----------
+
+########## 
+arguments: --type-check-only --fix-dangerously
+working directory: fixtures/cli/tsgolint_type_error
+----------
+The `--type-check-only` option cannot be used with fix flags.
+Remove `--fix`, `--fix-suggestions`, and `--fix-dangerously`.
+----------
+CLI result: InvalidOptionTypeCheckOnlyWithFix
+----------

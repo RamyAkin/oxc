@@ -2,7 +2,7 @@
 source: apps/oxlint/src/tester.rs
 ---
 ########## 
-arguments: --type-check-only --tsconfig fixtures/cli/tsgolint_type_check_programs/custom-tsconfig.json fixtures/cli/tsgolint_type_check_programs/projects/strict/index.ts
+arguments: --type-check-only --tsconfig fixtures/cli/tsgolint_type_check_programs/project/tsconfig.json fixtures/cli/tsgolint_type_check_programs/projects/strict/index.ts
 working directory: 
 ----------
 
