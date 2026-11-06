@@ -410,49 +410,6 @@ impl<'a> Source<'a> {
         Some(c)
     }
 
-    /// Get next 2 chars of source, and advance position to after them.
-    #[inline]
-    pub(super) fn next_2_chars(&mut self) -> Option<[char; 2]> {
-        // Check not at EOF and handle if 2 x ASCII bytes
-        let [byte1, byte2] = self.peek_2_bytes()?;
-        if byte1.is_ascii() && byte2.is_ascii() {
-            // SAFETY: We just checked that there are at least 2 bytes remaining,
-            // and next 2 bytes are ASCII, so advancing by 2 bytes must put `ptr`
-            // in bounds and on a UTF-8 character boundary
-            unsafe { self.ptr = self.ptr.add(2) };
-            Some([byte1 as char, byte2 as char])
-        } else {
-            // Multi-byte Unicode character.
-            // Check invariant that `ptr` is on a UTF-8 character boundary.
-            debug_assert!(!is_utf8_cont_byte(byte1));
-
-            // SAFETY: `Source` is not empty
-            unsafe { self.next_2_unicode_chars() }
-        }
-    }
-
-    /// Get next 2 chars of source, and advance position to after them, when one of next 2 chars is non-ASCII.
-    ///
-    /// # SAFETY
-    /// `Source` must not be empty.
-    #[cold] // Unicode is rare
-    unsafe fn next_2_unicode_chars(&mut self) -> Option<[char; 2]> {
-        // Create a `Chars` iterator, get next 2 chars from it, and then update `self.ptr`
-        // to match `Chars` iterator's updated pointer afterwards.
-        // `Chars` iterator upholds same invariants as `Source`, so its pointer is guaranteed
-        // to be valid as `self.ptr`.
-        let remaining = self.remaining();
-        // Inform compiler that `Source` is not empty, to remove check from `chars.next().unwrap()`.
-        // Compiler will not be aware of this invariant if this function is not inlined.
-        // SAFETY: Caller guarantees `Source` is not empty.
-        unsafe { assert_unchecked!(!remaining.is_empty()) };
-        let mut chars = remaining.chars();
-        let c1 = chars.next().unwrap();
-        let c2 = chars.next()?;
-        self.ptr = chars.as_str().as_ptr();
-        Some([c1, c2])
-    }
-
     /// Get next byte of source, and advance position to after it.
     ///
     /// # SAFETY

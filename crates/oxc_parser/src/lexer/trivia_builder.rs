@@ -121,21 +121,22 @@ impl<'a> TriviaBuilder<'a> {
         // The last unprocessed comment is on a newline.
         let len = self.comments.len();
         if self.processed < len {
-            let becomes_trailing = {
-                let comment = &mut self.comments[len - 1];
-                comment.set_followed_by_newline(true);
-                !self.saw_newline && !Self::should_stay_leading(comment)
-            };
-            if becomes_trailing {
-                self.attach_pending_comments(
-                    CommentPosition::Trailing,
-                    self.previous_token.end(),
-                    len,
-                );
-            }
+            self.handle_newline_after_comment(len);
         }
         self.saw_newline = true;
         self.saw_newline_for_comment = true;
+    }
+
+    #[cold]
+    fn handle_newline_after_comment(&mut self, len: usize) {
+        let becomes_trailing = {
+            let comment = &mut self.comments[len - 1];
+            comment.set_followed_by_newline(true);
+            !self.saw_newline && !Self::should_stay_leading(comment)
+        };
+        if becomes_trailing {
+            self.attach_pending_comments(CommentPosition::Trailing, self.previous_token.end(), len);
+        }
     }
 
     #[inline]

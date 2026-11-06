@@ -6,8 +6,16 @@ use super::{Kind, Lexer, Span, cold_branch};
 
 impl<C: Config> Lexer<'_, C> {
     /// 12.9.3 Numeric Literals with `0` prefix
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
     pub(super) fn read_zero(&mut self) -> Kind {
-        match self.peek_byte() {
+        if self
+            .peek_byte()
+            .is_none_or(|b| b.is_ascii() && !is_identifier_part_ascii(b as char) && b != b'.')
+        {
+            return Kind::Decimal;
+        }
+        cold_branch(|| match self.peek_byte() {
             Some(b'b' | b'B') => self.read_non_decimal(Kind::Binary),
             Some(b'o' | b'O') => self.read_non_decimal(Kind::Octal),
             Some(b'x' | b'X') => self.read_non_decimal(Kind::Hex),
@@ -26,19 +34,29 @@ impl<C: Config> Lexer<'_, C> {
             }
             Some(n) if n.is_ascii_digit() => self.read_legacy_octal(),
             _ => self.check_after_numeric_literal(Kind::Decimal),
-        }
+        })
     }
 
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
     pub(super) fn decimal_literal_after_first_digit(&mut self) -> Kind {
         self.read_decimal_digits_after_first_digit();
-        if self.next_ascii_byte_eq(b'.') {
-            return self.decimal_literal_after_decimal_point_after_digits();
-        } else if self.next_ascii_byte_eq(b'n') {
-            return self.check_after_numeric_literal(Kind::DecimalBigInt);
+        match self.peek_byte() {
+            Some(b'.') => cold_branch(|| {
+                self.consume_char();
+                self.decimal_literal_after_decimal_point_after_digits()
+            }),
+            Some(b'n') => cold_branch(|| {
+                self.consume_char();
+                self.check_after_numeric_literal(Kind::DecimalBigInt)
+            }),
+            Some(b'e' | b'E') => cold_branch(|| {
+                self.consume_char();
+                let kind = self.read_decimal_exponent();
+                self.check_after_numeric_literal(kind)
+            }),
+            _ => self.check_after_numeric_literal(Kind::Decimal),
         }
-
-        let kind = self.optional_exponent().unwrap_or(Kind::Decimal);
-        self.check_after_numeric_literal(kind)
     }
 
     // Inline into the 3 calls from `read_zero` so that value of `kind` is known
@@ -155,27 +173,32 @@ impl<C: Config> Lexer<'_, C> {
         self.read_decimal_digits_after_first_digit();
     }
 
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
     fn read_decimal_digits_after_first_digit(&mut self) {
-        while let Some(b) = self.peek_byte() {
-            match b {
-                b'_' => {
+        loop {
+            let bytes = self.source.remaining().as_bytes();
+            let mut end = 0;
+            while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+                end += 1;
+            }
+            // SAFETY: Only in-bounds ASCII digits were consumed.
+            self.source.set_position(unsafe { self.source.position().add(end) });
+            if !self.next_ascii_byte_eq(b'_') {
+                return;
+            }
+            let valid = cold_branch(|| {
+                self.token.set_has_separator(true);
+                if self.peek_byte().is_some_and(|b| b.is_ascii_digit()) {
                     self.consume_char();
-                    // NOTE: it looks invalid numeric tokens are still parsed.
-                    // This seems to be a waste. It also requires us to put this
-                    // call here instead of after we ensure the next character
-                    // is an ASCII digit
-                    self.token.set_has_separator(true);
-                    if self.peek_byte().is_some_and(|b| b.is_ascii_digit()) {
-                        self.consume_char();
-                    } else {
-                        self.unexpected_err();
-                        return;
-                    }
+                    true
+                } else {
+                    self.unexpected_err();
+                    false
                 }
-                b'0'..=b'9' => {
-                    self.consume_char();
-                }
-                _ => break,
+            });
+            if !valid {
+                return;
             }
         }
     }
@@ -210,6 +233,8 @@ impl<C: Config> Lexer<'_, C> {
         None
     }
 
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
     fn check_after_numeric_literal(&mut self, kind: Kind) -> Kind {
         // The SourceCharacter immediately following a NumericLiteral must not be
         // an IdentifierStart or DecimalDigit.
@@ -222,20 +247,18 @@ impl<C: Config> Lexer<'_, C> {
                     return kind;
                 }
             }
-            Some(_) => {
-                // Unicode
-                let c = self.peek_char().unwrap();
-                if !is_identifier_start(c) {
-                    return kind;
-                }
-            }
+            Some(_) => {}
             None => return kind,
         }
 
-        // Invalid next char (identifier/digit immediately after a number). This is invalid JS,
-        // so a cold path: building the diagnostic out-of-line keeps the `OxcDiagnostic` return
-        // buffer out of this function's stack frame, so the common (valid) return is near-leaf.
+        // Decode uncommon Unicode boundaries and report invalid endings out of line.
+        // This keeps Unicode decoding and the diagnostic return buffer out of the common path.
         cold_branch(|| {
+            if self.peek_byte().is_some_and(|b| !b.is_ascii())
+                && !is_identifier_start(self.peek_char().unwrap())
+            {
+                return kind;
+            }
             let offset = self.offset();
             self.consume_char();
             while let Some(c) = self.peek_char() {

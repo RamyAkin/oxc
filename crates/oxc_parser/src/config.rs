@@ -108,12 +108,12 @@ impl ParserConfig for RuntimeParserConfig {
 /// We have to define a different byte handler table for each config, as byte handler functions
 /// are generic over the [`LexerConfig`].
 ///
-/// Byte handler tables are defined within lexer (`lexer/byte_handlers.rs`).
+/// Common token classes dispatch directly to inlined lexer routines. The remaining bytes use
+/// byte handler tables defined within lexer (`lexer/byte_handlers.rs`).
 /// We need them to be defined as `static` items, for performance.
 /// 1. `static` ensures that only 1 copy of each byte handler table appears in the binary
 ///    (even if `Lexer::handle_byte` is inlined in multiple places).
-/// 2. Indexing into byte handlers table is an extremely hot path, and even 1 extra indirection (pointer chasing)
-///    has a sizeable impact on performance.
+/// 2. Direct indexing avoids an extra indirection when dispatching these remaining bytes.
 ///
 /// An associated type and `byte_handlers` method is the only way to make this work with Rust's type system
 /// and borrow checker.

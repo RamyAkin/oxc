@@ -6,7 +6,8 @@ use crate::{config::LexerConfig as Config, diagnostics};
 
 use super::{
     Kind, Lexer, Span, Token, cold_branch,
-    search::{SafeByteMatchTable, byte_search, safe_byte_match_table},
+    search::{SafeByteMatchTable, safe_byte_match_table},
+    source::SourcePosition,
 };
 
 const MIN_ESCAPED_STR_LEN: usize = 16;
@@ -16,62 +17,6 @@ static DOUBLE_QUOTE_STRING_END_TABLE: SafeByteMatchTable =
 
 static SINGLE_QUOTE_STRING_END_TABLE: SafeByteMatchTable =
     safe_byte_match_table!(|b| matches!(b, b'\'' | b'\r' | b'\n' | b'\\'));
-
-/// Macro to handle a string literal.
-///
-/// # SAFETY
-/// `$delimiter` must be an ASCII byte.
-/// Next char in `lexer.source` must be ASCII.
-/// `$table` must be a `SafeByteMatchTable`.
-/// `$table` must only match `$delimiter`, '\', '\r' or '\n'.
-macro_rules! handle_string_literal {
-    ($lexer:ident, $delimiter:literal, $table:ident) => {{
-        debug_assert!($delimiter.is_ascii());
-
-        // Skip opening quote.
-        // SAFETY: Caller guarantees next byte is ASCII, so safe to advance past it.
-        let after_opening_quote = $lexer.source.position().add(1);
-
-        // Consume bytes which are part of string
-        let next_byte = byte_search! {
-            lexer: $lexer,
-            table: $table,
-            start: after_opening_quote,
-            handle_eof: {
-                // Unterminated string is invalid JS, so a cold path. Building the diagnostic
-                // out-of-line keeps the `OxcDiagnostic` return buffer out of this handler's
-                // stack frame (matching the sibling `\\` and line-break arms below).
-                return cold_branch(|| {
-                    $lexer.error(diagnostics::unterminated_string($lexer.unterminated_range()));
-                    Kind::Undetermined
-                });
-            },
-        };
-
-        // Found a matching byte.
-        // Either end of string found, or a line break, or `\` escape.
-        match next_byte {
-            $delimiter => {
-                // SAFETY: Macro user guarantees delimiter is ASCII, so consuming it cannot move
-                // `lexer.source` off a UTF-8 character boundary.
-                $lexer.source.next_byte_unchecked();
-                Kind::Str
-            }
-            b'\\' => cold_branch(|| {
-                handle_string_literal_escape!($lexer, $delimiter, $table, after_opening_quote)
-            }),
-            _ => {
-                // Line break. This is impossible in valid JS, so cold path.
-                cold_branch(|| {
-                    debug_assert!(matches!(next_byte, b'\r' | b'\n'));
-                    $lexer.consume_char();
-                    $lexer.error(diagnostics::unterminated_string($lexer.unterminated_range()));
-                    Kind::Undetermined
-                })
-            }
-        }
-    }};
-}
 
 macro_rules! handle_string_literal_escape {
     ($lexer:ident, $delimiter:literal, $table:ident, $after_opening_quote:ident) => {{
@@ -152,22 +97,77 @@ macro_rules! handle_string_literal_escape {
 
 /// 12.9.4 String Literals
 impl<'a, C: Config> Lexer<'a, C> {
-    /// Read string literal delimited with `"`.
+    /// Read a string literal delimited with `"` or `'`.
+    ///
     /// # SAFETY
-    /// Next character must be `"`.
-    pub(super) unsafe fn read_string_literal_double_quote(&mut self) -> Kind {
-        // SAFETY: Caller guarantees next char is `"`, which is ASCII.
-        // b'"' is an ASCII byte. `DOUBLE_QUOTE_STRING_END_TABLE` is a `SafeByteMatchTable`.
-        unsafe { handle_string_literal!(self, b'"', DOUBLE_QUOTE_STRING_END_TABLE) }
+    /// `delimiter` must be the current source byte and either `"` or `'`.
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    pub(super) unsafe fn read_string_literal(&mut self, delimiter: u8) -> Kind {
+        let start = self.source.position();
+        let bytes = self.source.remaining().as_bytes();
+        let mut end = 1;
+        while let Some(&byte) = bytes.get(end) {
+            if byte == delimiter || matches!(byte, b'\\' | b'\r' | b'\n') {
+                break;
+            }
+            end += 1;
+        }
+        // SAFETY: The scan ends at EOF or an ASCII delimiter, escape, or line break.
+        self.source.set_position(unsafe { start.add(end) });
+        let Some(&byte) = bytes.get(end) else {
+            return cold_branch(|| {
+                self.error(diagnostics::unterminated_string(self.unterminated_range()));
+                Kind::Undetermined
+            });
+        };
+        if byte == delimiter {
+            // SAFETY: The closing quote is present and ASCII.
+            self.source.set_position(unsafe { start.add(end + 1) });
+            return Kind::Str;
+        }
+        // SAFETY: The opening quote is ASCII, and the scan stopped at an escape or line break.
+        unsafe { self.read_string_literal_tail(delimiter, byte, start.add(1)) }
     }
 
-    /// Read string literal delimited with `'`.
+    /// Continue a string after its first escape, or report a line break.
+    ///
     /// # SAFETY
-    /// Next character must be `'`.
-    pub(super) unsafe fn read_string_literal_single_quote(&mut self) -> Kind {
-        // SAFETY: Caller guarantees next char is `'`, which is ASCII.
-        // b'\'' is an ASCII byte. `SINGLE_QUOTE_STRING_END_TABLE` is a `SafeByteMatchTable`.
-        unsafe { handle_string_literal!(self, b'\'', SINGLE_QUOTE_STRING_END_TABLE) }
+    /// `delimiter` must be the opening quote, `byte` the current escape or line break,
+    /// and `after_opening_quote` the source position immediately after the opening quote.
+    #[cold]
+    unsafe fn read_string_literal_tail(
+        &mut self,
+        delimiter: u8,
+        byte: u8,
+        after_opening_quote: SourcePosition<'a>,
+    ) -> Kind {
+        if byte == b'\\' {
+            // SAFETY: The opening quote is present and ASCII. Both tables match only
+            // their ASCII delimiter, backslash, and line breaks.
+            unsafe {
+                if delimiter == b'"' {
+                    handle_string_literal_escape!(
+                        self,
+                        b'"',
+                        DOUBLE_QUOTE_STRING_END_TABLE,
+                        after_opening_quote
+                    )
+                } else {
+                    handle_string_literal_escape!(
+                        self,
+                        b'\'',
+                        SINGLE_QUOTE_STRING_END_TABLE,
+                        after_opening_quote
+                    )
+                }
+            }
+        } else {
+            debug_assert!(matches!(byte, b'\r' | b'\n'));
+            self.consume_char();
+            self.error(diagnostics::unterminated_string(self.unterminated_range()));
+            Kind::Undetermined
+        }
     }
 
     fn save_js_string(&mut self, value: JSStr<'a>) {
