@@ -3,6 +3,7 @@ use oxc_ast_visit::utf8_to_utf16::Utf8ToUtf16;
 use oxc_benchmark::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use oxc_estree_tokens::{ESTreeTokenOptionsJS, to_estree_tokens_json};
 use oxc_parser::{ParseOptions, Parser, ParserReturn, config::RuntimeParserConfig};
+use oxc_span::SourceType;
 use oxc_tasks_common::TestFiles;
 
 fn bench_parser(criterion: &mut Criterion) {
@@ -26,6 +27,34 @@ fn bench_parser(criterion: &mut Criterion) {
                         ..ParseOptions::default()
                     })
                     .parse();
+                allocator.reset();
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_line_comments(criterion: &mut Criterion) {
+    let mut group = criterion.benchmark_group("parser_line_comment");
+    let cases = [
+        ("short", format!("//{}\nvalue;\n", "x".repeat(8)).repeat(1000)),
+        ("medium", format!("//{}\nvalue;\n", "x".repeat(128)).repeat(1000)),
+        ("long", format!("//{}\nvalue;\n", "x".repeat(1024)).repeat(1000)),
+        ("crlf", format!("//{}\r\nvalue;\n", "x".repeat(128)).repeat(1000)),
+        ("line_separator", format!("//{}\u{2028}value;\n", "x".repeat(128)).repeat(1000)),
+        ("unicode", format!("//{}\nvalue;\n", "漢€𝄞".repeat(32)).repeat(1000)),
+        ("unicode_dense", format!("//{}\nvalue;\n", "€".repeat(128)).repeat(1000)),
+        ("eof", format!("value;\n//{}", "x".repeat(1024))),
+    ];
+
+    for (name, source_text) in cases {
+        group.bench_function(name, |b| {
+            let mut allocator = Allocator::default();
+            b.iter(|| {
+                black_box(
+                    Parser::new(&allocator, black_box(&source_text), SourceType::mjs()).parse(),
+                );
                 allocator.reset();
             });
         });
@@ -122,5 +151,5 @@ fn bench_estree_tokens(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(parser, bench_parser, bench_estree, bench_estree_tokens);
+criterion_group!(parser, bench_parser, bench_line_comments, bench_estree, bench_estree_tokens);
 criterion_main!(parser);

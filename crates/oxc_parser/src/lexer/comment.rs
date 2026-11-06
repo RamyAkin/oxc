@@ -26,6 +26,39 @@ static MULTILINE_COMMENT_START_TABLE: SafeByteMatchTable =
 impl<'a, C: Config> Lexer<'a, C> {
     /// Section 12.4 Single Line Comment
     pub(super) fn skip_single_line_comment(&mut self, kind: CommentKind) -> Kind {
+        let start = self.source.position();
+        let remaining = self.source.remaining().as_bytes();
+        let Some(index) = memchr::memchr3(b'\r', b'\n', LS_OR_PS_FIRST, remaining) else {
+            self.source.advance_to_end();
+            self.trivia_builder.add_line_comment(
+                self.token.start(),
+                self.offset(),
+                kind,
+                self.source.whole(),
+            );
+            return Kind::Skip;
+        };
+        // SAFETY: The match is an in-bounds ASCII byte or a UTF-8 leading byte.
+        let end = unsafe { start.add(index) };
+        if remaining[index] == LS_OR_PS_FIRST {
+            // Keep the scalar scanner for Unicode, where repeated matches can be very close.
+            self.source.set_position(end);
+            return self.skip_single_line_comment_unicode(kind);
+        }
+        self.trivia_builder.add_line_comment(
+            self.token.start(),
+            self.source.offset_of(end),
+            kind,
+            self.source.whole(),
+        );
+        // SAFETY: Consume the matching ASCII line break.
+        self.source.set_position(unsafe { end.add(1) });
+        self.token.set_is_on_new_line(true);
+        Kind::Skip
+    }
+
+    #[cold]
+    fn skip_single_line_comment_unicode(&mut self, kind: CommentKind) -> Kind {
         byte_search! {
             lexer: self,
             table: LINE_BREAK_TABLE,
@@ -206,5 +239,56 @@ impl<'a, C: Config> Lexer<'a, C> {
             self.consume_char();
         }
         Kind::HashbangComment
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oxc_allocator::Allocator;
+    use oxc_span::{SourceType, Span};
+
+    use crate::{
+        UniquePromise,
+        config::NoTokensLexerConfig,
+        lexer::{Kind, Lexer},
+    };
+
+    #[test]
+    fn line_comment_boundaries() {
+        for len in [0, 1, 15, 16, 31, 32, 63, 64, 255] {
+            for comment in [format!("//{}", "a".repeat(len)), format!("//{}€tail", "a".repeat(len))]
+            {
+                for line_break in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}", ""] {
+                    let source = if line_break.is_empty() {
+                        comment.clone()
+                    } else {
+                        format!("{comment}{line_break}next")
+                    };
+                    let allocator = Allocator::default();
+                    let mut lexer = Lexer::new(
+                        &allocator,
+                        &source,
+                        SourceType::mjs(),
+                        NoTokensLexerConfig,
+                        UniquePromise::new_for_tests_and_benchmarks(),
+                    );
+                    let token = lexer.first_token();
+                    assert!(lexer.errors.is_empty());
+                    assert_eq!(lexer.trivia_builder.comments.len(), 1);
+                    assert_eq!(
+                        lexer.trivia_builder.comments[0].span,
+                        Span::new(0, u32::try_from(comment.len()).unwrap())
+                    );
+                    if line_break.is_empty() {
+                        assert_eq!(token.kind(), Kind::Eof);
+                    } else {
+                        assert_eq!(token.kind(), Kind::Ident);
+                        assert!(token.is_on_new_line());
+                        assert_eq!(token.start() as usize, comment.len() + line_break.len());
+                    }
+                    assert_eq!(token.end() as usize, source.len());
+                }
+            }
+        }
     }
 }
