@@ -3,7 +3,6 @@ use oxc_ast_visit::utf8_to_utf16::Utf8ToUtf16;
 use oxc_benchmark::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use oxc_estree_tokens::{ESTreeTokenOptionsJS, to_estree_tokens_json};
 use oxc_parser::{ParseOptions, Parser, ParserReturn, config::RuntimeParserConfig};
-use oxc_span::SourceType;
 use oxc_tasks_common::TestFiles;
 
 fn bench_parser(criterion: &mut Criterion) {
@@ -27,37 +26,6 @@ fn bench_parser(criterion: &mut Criterion) {
                         ..ParseOptions::default()
                     })
                     .parse();
-                allocator.reset();
-            });
-        });
-    }
-
-    group.finish();
-}
-
-fn bench_escaped_strings(criterion: &mut Criterion) {
-    let mut group = criterion.benchmark_group("parser_escaped_string");
-    let cases = [
-        ("plain_short", format!("\"{}\";", "x".repeat(8))),
-        ("plain_long", format!("\"{}\";", "x".repeat(1024))),
-        ("short", format!("\"\\n{}\";", "x".repeat(8))),
-        ("medium", format!("\"\\n{}\";", "x".repeat(256))),
-        ("long", format!("\"\\n{}\";", "x".repeat(1024))),
-        ("middle", format!("\"{}\\n{}\";", "x".repeat(128), "x".repeat(128))),
-        ("end", format!("\"{}\\n\";", "x".repeat(256))),
-        ("many_escapes", format!("\"{}\";", r"a\n".repeat(80))),
-        ("unicode", format!("\"\\n{}\";", "漢€𝄞".repeat(80))),
-    ];
-
-    for (name, source) in cases {
-        // Keep the string literals out of the directive prologue.
-        let source_text = format!("0;{}", source.repeat(1000));
-        group.bench_function(name, |b| {
-            let mut allocator = Allocator::default();
-            b.iter(|| {
-                black_box(
-                    Parser::new(&allocator, black_box(&source_text), SourceType::mjs()).parse(),
-                );
                 allocator.reset();
             });
         });
@@ -154,5 +122,5 @@ fn bench_estree_tokens(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(parser, bench_parser, bench_escaped_strings, bench_estree, bench_estree_tokens);
+criterion_group!(parser, bench_parser, bench_estree, bench_estree_tokens);
 criterion_main!(parser);
