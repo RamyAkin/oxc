@@ -1,0 +1,28 @@
+---
+source: apps/oxlint/src/tester.rs
+---
+########## 
+arguments: --type-aware --type-check -A all project/index.ts project/other.ts
+working directory: fixtures/cli/tsgolint_type_check_programs
+----------
+
+  x typescript(TS2322): Type 'string' is not assignable to type 'number'.
+   ,-[project/index.ts:3:33]
+ 2 | 
+ 3 | export const project: Value = { count: "project" };
+   :                                 ^^^^^
+ 4 | Promise.resolve(1);
+   `----
+
+  x typescript(TS2322): Type 'number' is not assignable to type 'string'.
+   ,-[project/other.ts:1:14]
+ 1 | export const other: string = 123;
+   :              ^^^^^
+ 2 | Promise.resolve(2);
+   `----
+
+Found 0 warnings and 2 errors.
+Finished in <variable>ms on 2 files with 0 rules using 1 threads.
+----------
+CLI result: LintFoundErrors
+----------

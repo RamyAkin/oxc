@@ -1,0 +1,12 @@
+---
+source: apps/oxlint/src/tester.rs
+---
+########## 
+arguments: --type-aware --type-check project/clean.ts
+working directory: fixtures/cli/tsgolint_type_check_programs
+----------
+Found 0 warnings and 0 errors.
+Finished in <variable>ms on 1 file with 2 rules using 1 threads.
+----------
+CLI result: LintSucceeded
+----------
