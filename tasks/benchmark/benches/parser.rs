@@ -3,7 +3,6 @@ use oxc_ast_visit::utf8_to_utf16::Utf8ToUtf16;
 use oxc_benchmark::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use oxc_estree_tokens::{ESTreeTokenOptionsJS, to_estree_tokens_json};
 use oxc_parser::{ParseOptions, Parser, ParserReturn, config::RuntimeParserConfig};
-use oxc_span::SourceType;
 use oxc_tasks_common::TestFiles;
 
 fn bench_parser(criterion: &mut Criterion) {
@@ -32,40 +31,6 @@ fn bench_parser(criterion: &mut Criterion) {
         });
     }
 
-    group.finish();
-}
-
-fn bench_parenthesized_expressions(criterion: &mut Criterion) {
-    let mut group = criterion.benchmark_group("parser_parenthesized");
-    for (name, source) in [
-        ("assignment", "(ev = events[i]);"),
-        ("object", "({alpha: beta, gamma: delta});"),
-        ("array", "([alpha, beta]);"),
-        ("sequence", "(alpha, beta, gamma);"),
-        ("plain_assignment", "ev = events[i];"),
-        ("default_arrow", "(a = value) => a;"),
-        ("destructuring_arrow", "({a, b}) => a;"),
-        ("async_default_arrow", "async (a = value) => a;"),
-        ("async_destructuring_arrow", "async ({a, b}) => a;"),
-    ] {
-        let source = source.repeat(1_000);
-        for preserve_parens in [false, true] {
-            group.bench_function(BenchmarkId::new(name, preserve_parens), |b| {
-                let mut allocator = Allocator::default();
-                b.iter(|| {
-                    black_box(
-                        Parser::new(&allocator, black_box(&source), SourceType::mjs())
-                            .with_options(ParseOptions {
-                                preserve_parens,
-                                ..ParseOptions::default()
-                            })
-                            .parse(),
-                    );
-                    allocator.reset();
-                });
-            });
-        }
-    }
     group.finish();
 }
 
@@ -157,11 +122,5 @@ fn bench_estree_tokens(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    parser,
-    bench_parser,
-    bench_parenthesized_expressions,
-    bench_estree,
-    bench_estree_tokens
-);
+criterion_group!(parser, bench_parser, bench_estree, bench_estree_tokens);
 criterion_main!(parser);
